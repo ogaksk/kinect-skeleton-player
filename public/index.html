@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<title>Node Kinect2 Client</title>
+	<style>
+		body { margin: 0; }
+		canvas { width: 100%; height: 100% }
+	</style>
+</head>
+<body>
+	<script src="/socket.io/socket.io.js"></script>
+	<script src="/three.min.js"></script>
+  <script src="/TrackballControls.js"></script>
+	<script>
+		var socket = io.connect('/');
+		socket.emit("movie_start");
+		var colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#ff00ff'];
+		var mouse = { x: 0, y: 0 };
+    var floorClipPlane = {x: 0 , y: 0, z: 0, w: 0}
+
+		// handstate circle size
+		var HANDSIZE = 20;
+		// closed hand state color
+		var HANDCLOSEDCOLOR = "red";
+		// open hand state color
+		var HANDOPENCOLOR = "green";
+		// lasso hand state color
+		var HANDLASSOCOLOR = "blue";
+
+		var refleshScene = function (scene) {
+			scene.children.forEach(function(object){
+    		scene.remove(object);
+			});
+		}
+
+		var render = function () {
+				requestAnimationFrame( render );
+				renderer.render(scene, camera);
+				controls.update();
+		};
+
+    // vector = new THREE.Vector3( 150, 0, 0)
+    var setLine = function (vectorFrom, vectorTo) {
+      var geometry = new THREE.Geometry();
+      geometry.vertices.push( vectorFrom ); 
+      geometry.vertices.push( vectorTo ); 
+      return new THREE.Line( geometry, new THREE.LineBasicMaterial( { color: 0x990000} ) );
+    }
+
+		// three.scene rendering
+		var scene = new THREE.Scene();
+    var grid = new THREE.GridHelper( 500, 10 );
+		var camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
+		camera.position.z = 70;
+		camera.position.y = 3;
+		var renderer = new THREE.WebGLRenderer();
+		renderer.setSize( window.innerWidth, window.innerHeight );
+		document.body.appendChild( renderer.domElement );
+
+		var controls = new THREE.TrackballControls( camera );
+
+		// init origin cube 
+		var geometry = new THREE.BoxGeometry( 1, 1, 1 );
+		var material = new THREE.MeshBasicMaterial( { color: 0xffbb00 } );
+		var cube = new THREE.Mesh( geometry, material );
+
+    socket.on('floorclipplane', function(data) { 
+      console.log(data);
+      floorClipPlane.x = data.x;
+      floorClipPlane.y = data.y;
+      floorClipPlane.z = data.z;
+      floorClipPlane.w = data.w == 0 ? -0.03 : data.w;
+    });
+
+    var line1 = setLine(new THREE.Vector3(0, 0, 0), new THREE.Vector3(20, 0, 40))
+    var line2 = setLine(new THREE.Vector3(0, 0, 0), new THREE.Vector3(-20, 0, 40))
+
+		socket.on('bodyFrame', function(bodyFrame) {
+			var index = 0;
+      var yukamen = 0;
+			bodyFrame.bodies.forEach(function(body){
+				if(body.tracked) {
+					refleshScene(scene);
+          scene.add(grid);
+          scene.add(line1);
+          scene.add(line2);
+					for(var jointType in body.joints) {
+						var joint = body.joints[jointType];
+						var cubeClone = cube.clone();
+						// cubeClone.position.x = joint.depth *  window.innerWidth;
+						// cubeClone.position.z = joint.depthY *  window.innerHeight;
+						
+						cubeClone.position.x =  joint.cameraX * 20;
+						// cubeClone.position.y =  joint.cameraY * 20 + camera.position.y;
+            yukamen = -(floorClipPlane.x * body.joints[3].cameraX + floorClipPlane.z *body.joints[3].cameraZ + floorClipPlane.w) / floorClipPlane.y;
+            cubeClone.position.y = joint.cameraY * 20 + yukamen + 20;
+            // console.log(cubeClone.position.y)
+						cubeClone.position.z =  -joint.cameraZ * 20;
+						scene.add( cubeClone );
+
+					// 	ctx.fillRect(joint.depthX * 512, joint.depthY * 424, 10, 10);
+					}
+					index++;
+				}
+			});
+		});
+
+		render();
+
+	</script>
+</body>
+</html>
