@@ -10,6 +10,7 @@
 	</style>
 </head>
 <body>
+  <canvas id="outputCanvas"></canvas>
 	<script src="/socket.io/socket.io.js"></script>
 	<script src="/three.min.js"></script>
   <script src="/TrackballControls.js"></script>
@@ -29,11 +30,46 @@
 		// lasso hand state color
 		var HANDLASSOCOLOR = "blue";
 
-		var refleshScene = function (scene) {
-			scene.children.forEach(function(object){
-    		scene.remove(object);
-			});
-		}
+    // init origin cube 
+    var geometry = new THREE.BoxGeometry( 1, 1, 1 );
+    var material = new THREE.MeshBasicMaterial( { color: 0xffbb00 } );
+    var bodyCube;
+    var cubes = [];
+    var FACTOR = 100; // 世界のサイズ感をつかさどる係数
+
+    function init() {
+      renderer = new THREE.WebGLRenderer( {
+        canvas: document.getElementById('outputCanvas'),
+        antialias: true, clearColor: 0xffffff
+      } );
+
+      camera = new THREE.PerspectiveCamera( 40, renderer.domElement.width / renderer.domElement.height, 1, 10000 );
+      camera.position.set( 0, 50, 1000 );
+      controls = new THREE.TrackballControls( camera, renderer.domElement );
+
+      scene = new THREE.Scene();
+
+      createGrid();
+      createCube();
+      createCameraDest1();
+      createCameraDest2();
+      // createPointParticles(particles);
+
+      window.addEventListener( 'resize', onWindowResize, false );
+      onWindowResize();
+      render();
+
+      
+      socket.on('bodyFrame', processCubeTransform );
+      // kinect.on('rawDepthFrame', processPointCloud);
+      // socket.on('bodyFrameFromSlave',processCubeTransformWithSocket );      
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize( window.innerWidth, window.innerHeight );
+    }
 
 		var render = function () {
 				requestAnimationFrame( render );
@@ -41,13 +77,115 @@
 				controls.update();
 		};
 
-    // vector = new THREE.Vector3( 150, 0, 0)
-    var setLine = function (vectorFrom, vectorTo) {
-      var geometry = new THREE.Geometry();
-      geometry.vertices.push( vectorFrom ); 
-      geometry.vertices.push( vectorTo ); 
-      return new THREE.Line( geometry, new THREE.LineBasicMaterial( { color: 0x990000} ) );
+    function createGrid() {
+      // ground box
+      var geometry = new THREE.BoxGeometry( 1000, 2, 1000 );
+      material = new THREE.MeshNormalMaterial({wireframe: true, wireframeLinewidth: 2});
+      var mesh = new THREE.Mesh( geometry, material );
+      mesh.position.set( 0, -1, 0 );
+      scene.add( mesh );
+      mesh = new THREE.GridHelper( 1000, 10 );
+      scene.add( mesh );
+
+      // axes
+      var axis = new THREE.AxisHelper( 250 ); //X軸が赤色、Y軸が緑色、Z軸が青色となっています。
+      scene.add( axis );
+      renderer.render( scene, camera );
+
+      var geometry = new THREE.BoxGeometry( 50, 20, 50 );
+      var material = new THREE.MeshNormalMaterial();
+      var box = new THREE.Mesh( geometry, material );
+      scene.add( box );
     }
+
+
+    function createCube() {
+      var geometry = new THREE.BoxGeometry( 10, 10, 10 );
+      var material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
+      bodyCube = new THREE.Mesh( geometry, material );
+    }
+
+    var createCameraDest1 = function () {
+      var regularPolygon = new THREE.Mesh(
+        new THREE.CircleGeometry(450, 50, 0, 70 * Math.PI / 180),
+        new THREE.MeshBasicMaterial( { color: 0xffffff, wireframe: true, opacity: 0.9 } )
+      );
+      regularPolygon.rotation.set((-90 * Math.PI / 180), 0, (55 * Math.PI / 180))
+      regularPolygon.position.z = 460
+      scene.add( regularPolygon );
+    }
+
+
+    var createCameraDest2 = function () {
+      var regularPolygon = new THREE.Mesh(
+        new THREE.CircleGeometry(450, 50, 0, 70 * Math.PI / 180),
+        new THREE.MeshBasicMaterial( { color: 0xffffff, wireframe: true, opacity: 0.9 } )
+      );
+      regularPolygon.rotation.set((-90 * Math.PI / 180), 0, (235 * Math.PI / 180))
+      regularPolygon.position.z = -460
+      scene.add( regularPolygon );
+    }
+
+
+    function processCubeTransform(bodyFrame) {
+      var index = 0;
+      var yukamen = 0;
+      var unitNumber = bodyFrame.unitNumber;
+      setFloorclipplane(bodyFrame.floorClipPlane);
+      
+      bodyFrame.bodies.forEach(function(body){
+      if(body.tracked) {
+          refleshCube();
+          for(var jointType in body.joints) {
+            var joint = body.joints[jointType];
+            var cubeClone = bodyCube.clone();
+            cubeClone.material.color.set(setUnitColor(unitNumber));
+          
+            cubeClone.position.x =  setUnitPositionX(unitNumber) * joint.cameraX * FACTOR;
+            yukamen = (floorClipPlane.x * body.joints[3].cameraX + floorClipPlane.z *body.joints[3].cameraZ + floorClipPlane.w) / floorClipPlane.y;
+            cubeClone.position.y = (joint.cameraY * FACTOR) + (yukamen * FACTOR);
+            cubeClone.position.z = setUnitPositionX(unitNumber) * (joint.cameraZ * FACTOR) + (setUnitPositionZ(unitNumber) * 450);// 4.5mオフセット
+
+            cubes.push(cubeClone)
+            scene.add(cubeClone);
+
+          //  ctx.fillRect(joint.depthX * 512, joint.depthY * 424, 10, 10);
+          }
+          index++;
+        }
+      });
+    }
+
+    function setUnitColor(unitNumber) {
+      var ret;
+      unitNumber == "1" ? ret =  0x00ff00 : ret =0xff0000
+      return ret;
+    }
+
+    function setUnitPositionX(unitNumber) {
+      var ret;
+      unitNumber == "1" ? ret= 1 : ret= -1
+      return ret;
+    }
+
+    function setUnitPositionZ(unitNumber) {
+      var ret;
+      unitNumber == "1" ? ret= -1 : ret= 1
+      return ret;
+    }
+
+    function refleshCube() {        
+      for (var i = 0; i < cubes.length; i ++ ) {
+        scene.remove(cubes[i]);
+      }
+    }
+
+    function setFloorclipplane(data) { 
+      floorClipPlane.x = data.x;
+      floorClipPlane.y = data.y;
+      floorClipPlane.z = data.z;
+      floorClipPlane.w = data.w == 0 ? -0.03 : data.w;
+    };
 
 		// three.scene rendering
 		var scene = new THREE.Scene();
@@ -74,40 +212,40 @@
       floorClipPlane.w = data.w == 0 ? -0.03 : data.w;
     });
 
-    var line1 = setLine(new THREE.Vector3(0, 0, 0), new THREE.Vector3(20, 0, 40))
-    var line2 = setLine(new THREE.Vector3(0, 0, 0), new THREE.Vector3(-20, 0, 40))
-
-		socket.on('bodyFrame', function(bodyFrame) {
-			var index = 0;
-      var yukamen = 0;
-			bodyFrame.bodies.forEach(function(body){
-				if(body.tracked) {
-					refleshScene(scene);
-          scene.add(grid);
-          scene.add(line1);
-          scene.add(line2);
-					for(var jointType in body.joints) {
-						var joint = body.joints[jointType];
-						var cubeClone = cube.clone();
-						// cubeClone.position.x = joint.depth *  window.innerWidth;
-						// cubeClone.position.z = joint.depthY *  window.innerHeight;
+    // setCameraDest();
+		// socket.on('bodyFrame', function(bodyFrame) {
+		// 	var index = 0;
+  //     var yukamen = 0;
+		// 	bodyFrame.bodies.forEach(function(body){
+		// 		if(body.tracked) {
+		// 			refleshScene(scene);
+  //         scene.add(grid);
+  //         scene.add(line1);
+  //         scene.add(line2);
+  //         setCameraDest()
+		// 			for(var jointType in body.joints) {
+  //           ////// 骨格データはX／Y／Zの位置情報をメートル単位で取得できる ///////
+		// 				var joint = body.joints[jointType];
+		// 				var cubeClone = cube.clone();
+		// 				// cubeClone.position.x = joint.depth *  window.innerWidth;
+		// 				// cubeClone.position.z = joint.depthY *  window.innerHeight;
 						
-						cubeClone.position.x =  joint.cameraX * 20;
-						// cubeClone.position.y =  joint.cameraY * 20 + camera.position.y;
-            yukamen = -(floorClipPlane.x * body.joints[3].cameraX + floorClipPlane.z *body.joints[3].cameraZ + floorClipPlane.w) / floorClipPlane.y;
-            cubeClone.position.y = joint.cameraY * 20 + yukamen + 20;
-            // console.log(cubeClone.position.y)
-						cubeClone.position.z =  -joint.cameraZ * 20;
-						scene.add( cubeClone );
+		// 				cubeClone.position.x =  joint.cameraX * 20;
+		// 				// cubeClone.position.y =  joint.cameraY * 20 + camera.position.y;
+  //           yukamen = -(floorClipPlane.x * body.joints[3].cameraX + floorClipPlane.z *body.joints[3].cameraZ + floorClipPlane.w) / floorClipPlane.y;
+  //           cubeClone.position.y = joint.cameraY * 20 + yukamen + 20;
+  //           // console.log(cubeClone.position.y)
+		// 				cubeClone.position.z =  -joint.cameraZ * 20;
+		// 				scene.add( cubeClone );
 
-					// 	ctx.fillRect(joint.depthX * 512, joint.depthY * 424, 10, 10);
-					}
-					index++;
-				}
-			});
-		});
+		// 			// 	ctx.fillRect(joint.depthX * 512, joint.depthY * 424, 10, 10);
+		// 			}
+		// 			index++;
+		// 		}
+		// 	});
+		// });
 
-		render();
+		init();
 
 	</script>
 </body>
