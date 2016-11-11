@@ -80,7 +80,7 @@
     function createGrid() {
       // ground box
       var geometry = new THREE.BoxGeometry( 1000, 2, 1000 );
-      material = new THREE.MeshNormalMaterial({wireframe: true, wireframeLinewidth: 2});
+      material = new THREE.MeshBasicMaterial( { color: 0x1E90FF, wireframe: true, wireframeLinewidth: 3 } );
       var mesh = new THREE.Mesh( geometry, material );
       mesh.position.set( 0, -1, 0 );
       scene.add( mesh );
